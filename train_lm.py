@@ -14,7 +14,7 @@ from hidden import modelling
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
-    parser.add_argument('--split_dir', type=str, default='./assets/unannotated/DTA_splits',
+    parser.add_argument('--split_dir', type=str, default='./assets/unannotated/EEBO_splits',
                         help='location of the data corpus')
     parser.add_argument('--model', type=str, default='LSTM',
                         help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU)')
@@ -182,12 +182,10 @@ def main():
         print('-' * 89)
         print('Exiting from training early')
 
-    # Load the best saved model.
     with open(args.model_prefix + '_model.pt', 'rb') as f:
         lm = torch.load(f)
         lm.rnn.flatten_parameters()
 
-    # Run on test data.
     test_loss = evaluate(test)
     print('=' * 89)
     print('| End of training | test loss {:5.6f} | test ppl {:8.2f}'.format(
