@@ -186,7 +186,7 @@ def main():
                 elapsed = time.time() - start_time
                 print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.6f} | ms/batch {:5.5f} | '
                         'loss {:5.6f}'.format(
-                    current_epoch, batch * args.batch_size, len(train_X) // args.bptt, lr,
+                    current_epoch, batch * args.batch_size, len(train_X) // args.bptt * args.batch_size, lr,
                     elapsed * 1000 / args.log_interval, cur_loss))
                 total_loss = 0
                 start_time = time.time()

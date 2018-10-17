@@ -15,16 +15,6 @@ from hidden import modelling
 from hidden.encoding import LabelEncoder
 
 
-def to_ints(text, dictionary):
-    ints = []
-    for char in text:
-        try:
-            ints.append(dictionary.char2idx[char])
-        except KeyError:
-            ints.append(0)
-    return torch.LongTensor(ints)
-
-
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
     parser.add_argument('--infile', type=str, default='./assets/test.txt',
@@ -45,11 +35,11 @@ def main():
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         if not args.cuda:
-            print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+            print('WARNING: You have a CUDA device, so you should probably run with --cuda')
 
     encoder = LabelEncoder.load(args.model_prefix+'_labeldict.json')
 
-    device = torch.device("cuda" if args.cuda else "cpu")
+    device = torch.device('cuda' if args.cuda else 'cpu')
     random.seed(args.seed)
 
     with open(args.infile, 'r') as f:
@@ -62,7 +52,7 @@ def main():
         dsm.rnn.flatten_parameters()
     dsm = dsm.to(device)
 
-    ints = to_ints(text, dictionary)
+    ints = torch.LongTensor([dictionary.char2idx.get(c, 0) for c in text])
     preds = []
     hid_ = None
 
