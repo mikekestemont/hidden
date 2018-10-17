@@ -1,6 +1,54 @@
 import json
+import re
 from collections import Counter
 
+from bs4 import BeautifulSoup as soup
+from lxml import etree
+
+
+spaces = re.compile(r' +')
+
+def ced_reader(fn):
+    print(fn)
+
+    with open(fn) as inf:
+        s = etree.XML(inf.read().encode('ascii', 'xmlcharrefreplace'))
+
+    for comment in s.xpath('.//comment'):
+        comment.getparent().remove(comment)
+
+    body = list(s.findall('.//dialogueText'))[0]
+
+    samples = list(body.findall('.//sample'))
+    if not samples:
+        samples = [body]
+
+    characters, labels = '', ''
+
+    for sample in samples:
+        for child in sample:
+            if child.tag in ('pagebreak', 'omission'):
+                pass
+            elif child.tag in ('head', 'nonSpeech', 'font', 'foreign', 'emendation'):
+                text = ''.join(child.itertext(with_tail=True))
+                text = re.sub(spaces, ' ', text)
+                if text:
+                    characters += text
+                    labels += ('O' * len(text))
+            elif child.tag == 'dialogue':
+                text = ''.join(child.itertext(with_tail=True))
+                text = re.sub(spaces, ' ', text)
+                if text:
+                    characters += text
+                    labels += 'B' + 'I' * (len(text) - 1)
+
+    assert len(characters) == len(labels)
+
+    assert len(labels) == len(characters)
+    formatted = '\n'.join([json.dumps((c, l)) for c, l in list(zip(characters, labels))])
+    return formatted + '\n'
+
+readers = {'CED': ced_reader}
 
 class Dictionary(object):
 
@@ -42,3 +90,4 @@ class Dictionary(object):
             params = json.load(f)
 
         return Dictionary(**params)
+

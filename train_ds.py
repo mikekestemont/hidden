@@ -1,14 +1,15 @@
-# coding: utf-8
 import argparse
 import time
 import glob
 import math
 import os
-import random
+import shutil
+import json
 
 import torch
 import torch.nn as nn
-import torch.onnx
+
+from sklearn.model_selection import train_test_split as split
 
 from hidden import data
 from hidden import utils
@@ -18,36 +19,6 @@ import numpy as np
 from lxml import etree
 
 from hidden.encoding import LabelEncoder
-
-import xml.dom.minidom
-from xml.dom.minidom import Node
-node_types = {1: 'ELEMENT', 2: "ATTRIBUTE", 3: 'TEXT'}
-
-def load_file(path):
-    text, labels = '', ''
-    book = xml.dom.minidom.parse(path)
-    items = list(book.getElementsByTagName('chapter'))
-    if not items:
-        items = list(book.getElementsByTagName('text'))
-    for chapter in items:
-        t_ = ''
-        for element in chapter.childNodes:
-            t_ = ''
-            t = node_types[element.nodeType]
-            if t == 'TEXT':
-                t_ = element.nodeValue
-                text += t_
-                labels += ('O' * len(t_))
-            elif t == 'ELEMENT':
-                t_ = element.firstChild.nodeValue
-                if t_ and element.tagName in ('quote', 'mention'):
-                    text += t_
-                    if element.tagName == 'quote':
-                        labels += 'B' + 'I' * (len(t_) - 1)
-                    elif element.tagName == 'mention':
-                        labels += ('O' * len(t_))
-    assert len(labels) == len(text)
-    return text, labels
 
 def to_ints(text, dictionary):
     ints = []
@@ -61,15 +32,19 @@ def to_ints(text, dictionary):
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
-    parser.add_argument('--input_dir', type=str, default='./assets/annotated',
+    parser.add_argument('--input_dir', type=str, default='./assets/annotated/CED',
                         help='location of the data corpus')
+    parser.add_argument('--split_dir', type=str, default='./assets/annotated/CED_splits',
+                        help='location of the data corpus')
+    parser.add_argument('--reparse', action='store_true', default=False,
+                        help='use CUDA')
     parser.add_argument('--batch_size', type=int, default=20, metavar='N',
                         help='batch size')
     parser.add_argument('--epochs', type=int, default=20, metavar='N',
                         help='batch size')
     parser.add_argument('--bptt', type=int, default=35,
                         help='sequence length')
-    parser.add_argument('--train_size', type=float, default=.9,
+    parser.add_argument('--train_size', type=float, default=.8,
                         help='sequence length')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='sequence length')
@@ -86,60 +61,70 @@ def main():
     parser.add_argument('--full_finetune', action='store_true', default=False,
                         help='use CUDA')
 
-
     args = parser.parse_args()
     print(args)
 
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         if not args.cuda:
-            print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+            print('WARNING: You have a CUDA device, so you should probably run with --cuda')
 
-    device = torch.device("cuda" if args.cuda else "cpu")
-    random.seed(args.seed)
+    device = torch.device('cuda' if args.cuda else 'cpu')
 
-    train_text, train_labels = '', ''
-    dev_text, dev_labels = '', ''
-    test_text, test_labels = '', ''
+    if args.reparse:
+        filenames = glob.glob(os.sep.join((args.input_dir, '**', '*.xml')), recursive=True)
+        print(filenames)
 
-    for path in glob.glob(f'{args.input_dir}/*.xml'):
-        text, labels = load_file(path)
-        
-        rest_size = int((len(text) - len(text) * args.train_size) / 2)
-        random_start = random.randint(0, len(text) - rest_size * 2)
+        train, rest = split(filenames,
+                            train_size=args.train_size,
+                            shuffle=True,
+                            random_state=args.seed)
+        dev, test = split(rest,
+                          train_size=0.5,
+                          shuffle=True,
+                          random_state=args.seed)
 
-        dev_start, dev_end = random_start, random_start + int(rest_size)
-        test_start, test_end = dev_end + 1, dev_end + int(rest_size) + 1
+        print(f'# train files: {len(train)}')
+        print(f'# dev files: {len(dev)}')
+        print(f'# test files: {len(test)}')
 
-        dev_text += text[dev_start : dev_end]
-        dev_labels += labels[dev_start : dev_end]
+        try:
+            shutil.rmtree(args.split_dir)
+        except FileNotFoundError:
+            pass
+        os.mkdir(args.split_dir)
 
-        test_text += text[test_start : test_end]
-        test_labels += labels[test_start : test_end]
+        reader = data.readers[os.path.basename(args.input_dir)]
 
-        if dev_start < 0:
-            train_text += text[:dev_start]
-            train_labels += labels[:dev_start]
-        if test_end < len(text) - 1:
-            train_text += text[test_end:]
-            train_labels += labels[test_end:]
+        with open(os.sep.join((args.split_dir, 'train.txt')), 'w') as f:
+            for fn in sorted(train):
+                f.write(reader(fn))
 
-        assert len(train_text) == len(train_labels)
-        assert len(dev_text) == len(dev_labels)
-        assert len(test_text) == len(test_labels)
-    
-    print('train chars:', len(train_text))
-    print('dev chars:', len(dev_text))
-    print('test chars:', len(test_text))
+        with open(os.sep.join((args.split_dir, 'dev.txt')), 'w') as f:
+            for fn in sorted(dev):
+                f.write(reader(fn))
+
+        with open(os.sep.join((args.split_dir, 'test.txt')), 'w') as f:
+            for fn in sorted(test):
+                f.write(reader(fn))
+
+    train = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'train.txt')), 'r')]
+    train_text, train_labels = zip(*train)
+
+    dev = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'dev.txt')), 'r')]
+    dev_text, dev_labels = zip(*dev)
+
+    test = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'test.txt')), 'r')]
+    test_text, test_labels = zip(*test)
 
     dictionary = data.Dictionary.load(args.model_prefix+'_chardict.json')
     train_text = to_ints(train_text, dictionary)
     dev_text = to_ints(dev_text, dictionary)
     test_text = to_ints(test_text, dictionary)
 
-    train_X = utils.batchify(train_text, args.batch_size, device)
-    dev_X = utils.batchify(dev_text, args.batch_size, device)
-    test_X = utils.batchify(test_text, args.batch_size, device)
+    train_X = utils.batchify(train_text, args.batch_size).to(device)
+    dev_X = utils.batchify(dev_text, args.batch_size).to(device)
+    test_X = utils.batchify(test_text, args.batch_size).to(device)
 
     encoder = LabelEncoder().fit(list(train_labels))
     encoder.save(args.model_prefix+'_labeldict.json')
@@ -151,9 +136,9 @@ def main():
     dev_Y = torch.LongTensor(dev_Y).to(device)
     test_Y = torch.LongTensor(test_Y).to(device)
 
-    train_Y = utils.batchify(train_Y, args.batch_size, device)
-    dev_Y = utils.batchify(dev_Y, args.batch_size, device)
-    test_Y = utils.batchify(test_Y, args.batch_size, device)
+    train_Y = utils.batchify(train_Y, args.batch_size).to(device)
+    dev_Y = utils.batchify(dev_Y, args.batch_size).to(device)
+    test_Y = utils.batchify(test_Y, args.batch_size).to(device)
 
     with open(args.model_prefix + '_model.pt', 'rb') as f:
         dsm = torch.load(f)
@@ -207,8 +192,8 @@ def main():
                 start_time = time.time()
 
                 # remove later!
-                #with open(args.model_prefix + '_dsm.pt', 'wb') as f:
-                #    torch.save(dsm, f)
+                with open(args.model_prefix + '_dsm.pt', 'wb') as f:
+                    torch.save(dsm, f)
 
     def evaluate(X, Y):
         dsm.eval()

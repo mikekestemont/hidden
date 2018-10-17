@@ -1,17 +1,22 @@
 import argparse
 import os
+import glob
+import re
 import shutil
 
 from sklearn.model_selection import train_test_split as split
 from bs4 import BeautifulSoup as soup
 
-def plain_text(fn):
+def plain_text(fn, n=3):
     print(fn)
     with open(fn) as inf:
         s = soup(inf.read(), 'lxml')
     for script in s(['script', 'style']):
         script.extract()
-    return s.find('text').text
+    text = s.find('text').text
+
+    # deflood multiple occurences of whitespace:
+    return re.sub(r"((\s)\2{%s,})" % (n - 1), lambda m: m.group(1)[0] * n, text)
 
 
 def main():
@@ -28,11 +33,7 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    filenames = []
-    for root, dirs, files in os.walk(args.indir):
-        for fn in files:
-            if fn.endswith('.xml'):
-                filenames.append(os.path.join(root, fn))
+    filenames = glob.glob(os.sep.join((args.indir, '**', '*.xml')), recursive=True)
 
     train, rest = split(filenames,
                         train_size=args.train_size,
