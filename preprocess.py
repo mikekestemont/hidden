@@ -49,9 +49,6 @@ def main():
 
     filenames = glob.glob(os.sep.join((args.indir, '**', '*.xml')), recursive=True)
 
-    # !!!
-    filenames = filenames[:20]
-
     train, rest = split(filenames,
                         train_size=args.train_size,
                         shuffle=True,

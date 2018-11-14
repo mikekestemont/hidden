@@ -73,9 +73,6 @@ def main():
         filenames = glob.glob(os.sep.join((args.input_dir, '**', f'*.{args.input_ext}')), recursive=True)
         print(filenames)
 
-        # !!!
-        filenames = filenames[:100]
-
         train, rest = split(filenames,
                             train_size=args.train_size,
                             shuffle=True,

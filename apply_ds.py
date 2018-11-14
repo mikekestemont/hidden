@@ -31,8 +31,12 @@ def main():
                         help='use CUDA')
     parser.add_argument('--model_prefix', type=str, default='base',
                         help='path to save the final model')
+    parser.add_argument('--direction', type=str, default='both',
+                        help='path to save the final model')
     args = parser.parse_args()
     print(args)
+
+    assert args.direction in ('both', 'left', 'right')
 
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
@@ -79,17 +83,18 @@ def main():
         else:
             return output
 
-    proba_left = predict_proba(test_text)
-    proba_right = predict_proba(test_text, reverse=True)
+    if args.direction == 'both':
+        proba_left = predict_proba(test_text)
+        proba_right = predict_proba(test_text, reverse=True)
+        proba = (proba_left + proba_right) / 2
 
-    print(proba_left.shape)
-    print(proba_right.shape)
+    elif args.direction == 'left':
+        proba = predict_proba(test_text)
 
-    proba = (proba_left + proba_right) / 2
-
-    print(proba.shape)
+    elif args.direction == 'right':
+        proba = predict_proba(test_text, reverse=True)
     
-    output = np.argmax(output, axis=-1)
+    output = np.argmax(proba, axis=-1)
     output = encoder.inverse_transform(output)
     report = classification_report(test_labels, output)
 
