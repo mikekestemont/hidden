@@ -7,6 +7,10 @@ import shutil
 from sklearn.model_selection import train_test_split as split
 from bs4 import BeautifulSoup as soup
 
+"""
+python --indir="assets/unannotated/DTA" --outdir="assets/unannotated/DTA_splits"
+"""
+
 def plain_text(fn, n=3):
     print(fn)
     with open(fn) as inf:
@@ -16,7 +20,17 @@ def plain_text(fn, n=3):
     text = s.find('text').text
 
     # deflood multiple occurences of whitespace:
-    return re.sub(r"((\s)\2{%s,})" % (n - 1), lambda m: m.group(1)[0] * n, text)
+    #return re.sub(r"((\s)\2{%s,})" % (n - 1), lambda m: m.group(1)[0] * n, text)
+
+    text = re.sub(r'oͤ', 'ö', text)
+    text = re.sub(r'uͤ', 'ü', text)
+    text = re.sub(r'aͤ', 'ä', text)
+
+    text = re.sub(r'\-\s*\n+\s*', '', text)
+    text = re.sub(r'¬\s*\n+\s*', '', text)
+    text = re.sub(r'\s+', ' ', text)
+
+    return text
 
 
 def main():
@@ -34,6 +48,9 @@ def main():
     print(args)
 
     filenames = glob.glob(os.sep.join((args.indir, '**', '*.xml')), recursive=True)
+
+    # !!!
+    filenames = filenames[:20]
 
     train, rest = split(filenames,
                         train_size=args.train_size,

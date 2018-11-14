@@ -14,15 +14,15 @@ from hidden import modelling
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
-    parser.add_argument('--split_dir', type=str, default='./assets/unannotated/EEBO_splits',
+    parser.add_argument('--split_dir', type=str, default='./assets/unannotated/DTA_splits',
                         help='location of the data corpus')
     parser.add_argument('--model', type=str, default='LSTM',
                         help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU)')
-    parser.add_argument('--min_char_freq', type=int, default=100,
+    parser.add_argument('--min_char_freq', type=int, default=1000,
                         help='size of word embeddings')
-    parser.add_argument('--emsize', type=int, default=64,
-                        help='size of word embeddings')
-    parser.add_argument('--nhid', type=int, default=200,
+    parser.add_argument('--emsize', type=int, default=128,
+                        help='size of embeddings')
+    parser.add_argument('--nhid', type=int, default=128,
                         help='number of hidden units per layer')
     parser.add_argument('--nlayers', type=int, default=1,
                         help='number of layers')
@@ -36,7 +36,7 @@ def main():
                         help='upper epoch limit')
     parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                         help='batch size')
-    parser.add_argument('--bptt', type=int, default=254,
+    parser.add_argument('--bptt', type=int, default=64,
                         help='sequence length')
     parser.add_argument('--dropout', type=float, default=0.0,
                         help='dropout applied to layers (0 = no dropout)')
@@ -44,7 +44,8 @@ def main():
                         help='random seed')
     parser.add_argument('--cuda', action='store_true',
                         help='use CUDA')
-    parser.add_argument('--make_splits', action='store_true', help='use CUDA')
+    parser.add_argument('--reverse', default=False, action='store_true',
+                        help='backwards LM')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='report interval')
     parser.add_argument('--model_prefix', type=str, default='base',
@@ -57,23 +58,36 @@ def main():
     if torch.cuda.is_available() and not args.cuda:
         print('WARNING: You have a CUDA device, so you should probably run with --cuda')
 
-    # preprocess
-    dictionary = data.Dictionary(min_freq=args.min_char_freq)
-    with open(os.sep.join((args.split_dir, 'train.txt')), 'r') as f:
-        dictionary.fit(f.read())
-    dictionary.dump(args.model_prefix + '_chardict.json')
-    del dictionary
-
+    if not args.reverse:
+        # preprocess
+        dictionary = data.Dictionary(min_freq=args.min_char_freq)
+        with open(os.sep.join((args.split_dir, 'train.txt')), 'r') as f:
+            dictionary.fit(f.read())
+        dictionary.dump(args.model_prefix + '_chardict.json')
+        del dictionary
+    
     dictionary = data.Dictionary.load(args.model_prefix + '_chardict.json')
+
+    if args.reverse:
+        args.model_prefix += '-rev'
 
     print('char vocab:', dictionary.idx2char)
 
     with open(os.sep.join((args.split_dir, 'train.txt')), 'r') as f:
-        train = torch.LongTensor(dictionary.transform(f.read()))
+        train = f.read()
+        if args.reverse:
+            train = train[::-1]
+        train = torch.LongTensor(dictionary.transform(train))
     with open(os.sep.join((args.split_dir, 'dev.txt')), 'r') as f:
-        dev = torch.LongTensor(dictionary.transform(f.read()))
+        dev = f.read()
+        if args.reverse:
+            dev = dev[::-1]
+        dev = torch.LongTensor(dictionary.transform(dev))
     with open(os.sep.join((args.split_dir, 'test.txt')), 'r') as f:
-        test = torch.LongTensor(dictionary.transform(f.read()))
+        test = f.read()
+        if args.reverse:
+            test = test[::-1]
+        test = torch.LongTensor(dictionary.transform(test))
 
     print(f'# of characters in train: {len(train)}')
     print(f'# of characters in dev: {len(dev)}')
@@ -81,9 +95,9 @@ def main():
 
     device = torch.device('cuda' if args.cuda else 'cpu')
 
-    train = utils.batchify(train, args.batch_size).to(device)
-    dev = utils.batchify(dev, args.batch_size).to(device)
-    test = utils.batchify(test, args.batch_size).to(device)
+    train = utils.batchify(train, args.batch_size)
+    dev = utils.batchify(dev, args.batch_size)
+    test = utils.batchify(test, args.batch_size)
 
     # set up model
     vocab_size = len(dictionary)
@@ -102,6 +116,9 @@ def main():
 
         for batch, i in enumerate(range(0, train.size(0) - 1, args.bptt)):
             data, targets = utils.get_batch(train, i, args.bptt)
+
+            data = data.to(device)
+            targets = targets.to(device)
 
             lm.zero_grad()
             output, hidden = lm(data, hidden)
@@ -128,7 +145,7 @@ def main():
                     hid_ = None
                     in_ = torch.randint(vocab_size, (1, 1), dtype=torch.long).to(device)
 
-                    for i in range(90):
+                    for i in range(100):
                         output, hid_ = lm(in_, hid_)
                         char_weights = output.squeeze().div(args.temperature).exp().cpu()
                         char_idx = torch.multinomial(char_weights, 1)[0]
@@ -150,6 +167,8 @@ def main():
         with torch.no_grad():
             for i in range(0, data_source.size(0) - 1, args.bptt):
                 data, targets = utils.get_batch(data_source, i, args.bptt)
+                data = data.to(device)
+                targets = targets.to(device)
                 output, hidden = lm(data, hidden)
                 output_flat = output.view(-1, vocab_size)
                 total_loss += len(data) * criterion(output_flat, targets).item()

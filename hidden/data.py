@@ -44,11 +44,47 @@ def ced_reader(fn):
 
     assert len(characters) == len(labels)
 
-    assert len(labels) == len(characters)
     formatted = '\n'.join([json.dumps((c, l)) for c, l in list(zip(characters, labels))])
     return formatted + '\n'
 
-readers = {'CED': ced_reader}
+def de_reader(fn):
+    print(fn)
+
+    characters, labels = [], []
+
+    with open(fn, 'r') as f:
+        lines = list(f.readlines())[1:10000]
+
+    for idx, line in enumerate(lines):
+        try:
+            token, speech, pos, *_ = line.strip().split('\t')
+        except ValueError:
+            continue
+
+        if speech == '0':
+            label = 'O'
+        elif speech == '1':
+            label = 'I'
+
+        characters_ = token
+        labels_ = ''.join([label] * len(characters_))
+        
+        if not pos.startswith('$'):
+            characters_ = ' ' + characters_
+            labels_ = labels_[0] + labels_
+
+        characters += characters_
+        labels += labels_
+
+    assert len(characters) == len(labels)
+
+    #for a, b in zip(characters, labels):
+    #    print(a, b)
+
+    formatted = '\n'.join([json.dumps((c, l)) for c, l in list(zip(characters, labels))])
+    return formatted + '\n'
+
+readers = {'CED-en': ced_reader, 'kern_rich-de': de_reader}
 
 class Dictionary(object):
 

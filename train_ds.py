@@ -21,20 +21,16 @@ from lxml import etree
 from hidden.encoding import LabelEncoder
 
 def to_ints(text, dictionary):
-    ints = []
-    for char in text:
-        try:
-            ints.append(dictionary.char2idx[char])
-        except KeyError:
-            ints.append(0)
-    return torch.LongTensor(ints)
+    return torch.LongTensor([dictionary.char2idx.get(c, 0) for c in text])
 
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
-    parser.add_argument('--input_dir', type=str, default='./assets/annotated/CED',
+    parser.add_argument('--input_dir', type=str, default='./assets/annotated/kern_rich-de',
                         help='location of the data corpus')
-    parser.add_argument('--split_dir', type=str, default='./assets/annotated/CED_splits',
+    parser.add_argument('--input_ext', type=str, default='tsv',
+                        help='location of the data corpus')
+    parser.add_argument('--split_dir', type=str, default='./assets/annotated/kern_splits',
                         help='location of the data corpus')
     parser.add_argument('--reparse', action='store_true', default=False,
                         help='use CUDA')
@@ -42,9 +38,9 @@ def main():
                         help='batch size')
     parser.add_argument('--epochs', type=int, default=20, metavar='N',
                         help='batch size')
-    parser.add_argument('--bptt', type=int, default=35,
+    parser.add_argument('--bptt', type=int, default=254,
                         help='sequence length')
-    parser.add_argument('--train_size', type=float, default=.8,
+    parser.add_argument('--train_size', type=   float, default=.8,
                         help='sequence length')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='sequence length')
@@ -60,6 +56,8 @@ def main():
                         help='report interval')
     parser.add_argument('--full_finetune', action='store_true', default=False,
                         help='use CUDA')
+    parser.add_argument('--reverse', default=False, action='store_true',
+                        help='backwards LM')
 
     args = parser.parse_args()
     print(args)
@@ -72,8 +70,11 @@ def main():
     device = torch.device('cuda' if args.cuda else 'cpu')
 
     if args.reparse:
-        filenames = glob.glob(os.sep.join((args.input_dir, '**', '*.xml')), recursive=True)
+        filenames = glob.glob(os.sep.join((args.input_dir, '**', f'*.{args.input_ext}')), recursive=True)
         print(filenames)
+
+        # !!!
+        filenames = filenames[:100]
 
         train, rest = split(filenames,
                             train_size=args.train_size,
@@ -109,12 +110,18 @@ def main():
                 f.write(reader(fn))
 
     train = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'train.txt')), 'r')]
+    if args.reverse:
+        train = train[::-1]
     train_text, train_labels = zip(*train)
 
     dev = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'dev.txt')), 'r')]
+    if args.reverse:
+        dev = dev[::-1]
     dev_text, dev_labels = zip(*dev)
 
     test = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'test.txt')), 'r')]
+    if args.reverse:
+        test = test[::-1]
     test_text, test_labels = zip(*test)
 
     dictionary = data.Dictionary.load(args.model_prefix+'_chardict.json')
@@ -152,6 +159,9 @@ def main():
     lr = args.lr
     best_val_loss = None
     criterion = nn.CrossEntropyLoss()
+
+    if args.reverse:
+        args.model_prefix += '-rev'
 
     def get_batch(source, i, bptt):
         seq_len = min(bptt, len(source) - i)
@@ -251,7 +261,8 @@ def main():
     if args.full_finetune:
         for param in dsm.parameters():
             param.requires_grad = True
-        optimizer = torch.optim.SGD(dsm.parameters(), lr=args.lr * 0.1, weight_decay=1e-5)
+        optimizer = torch.optim.Adam(dsm.parameters(),
+                                 lr=args.lr, weight_decay=1e-5)
         train_loop()
 
     # Load the best saved model.
