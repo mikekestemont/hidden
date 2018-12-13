@@ -34,7 +34,7 @@ def main():
                         help='location of the data corpus')
     parser.add_argument('--reparse', action='store_true', default=False,
                         help='use CUDA')
-    parser.add_argument('--batch_size', type=int, default=20, metavar='N',
+    parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                         help='batch size')
     parser.add_argument('--epochs', type=int, default=20, metavar='N',
                         help='batch size')
@@ -71,7 +71,6 @@ def main():
 
     if args.reparse:
         filenames = glob.glob(os.sep.join((args.input_dir, '**', f'*.{args.input_ext}')), recursive=True)
-        print(filenames)
 
         train, rest = split(filenames,
                             train_size=args.train_size,
@@ -164,11 +163,14 @@ def main():
         seq_len = min(bptt, len(source) - i)
         return source[i : i+seq_len]
 
-    def train(current_epoch):
+    def train(current_epoch, lr):
         dsm.train()
         total_loss = 0.
         start_time = time.time()
         hidden = None
+
+        for g in optimizer.param_groups:
+            g['lr'] = lr
 
         for batch, i in enumerate(range(0, train_X.size(0) - 1, args.bptt)):            
             data = get_batch(train_X, i, args.bptt)
@@ -198,10 +200,6 @@ def main():
                 total_loss = 0
                 start_time = time.time()
 
-                # remove later!
-                with open(args.model_prefix + '_dsm.pt', 'wb') as f:
-                    torch.save(dsm, f)
-
     def evaluate(X, Y):
         dsm.eval()
         total_loss = 0.
@@ -227,18 +225,21 @@ def main():
         try:
             for epoch in range(1, args.epochs+1):
                 epoch_start_time = time.time()
-                train(epoch)
+                train(epoch, lr)
                 val_loss = evaluate(dev_X, dev_Y)
                 print('-' * 89)
                 print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.5f} | '.format(epoch, (time.time() - epoch_start_time), val_loss))
-                print('-' * 89)
                 
                 if not best_val_loss or val_loss < best_val_loss:
                     with open(args.model_prefix + '_dsm.pt', 'wb') as f:
                         torch.save(dsm, f)
+                    print('>>> saving model')    
                     best_val_loss = val_loss
-                else:
+                elif val_loss >= best_val_loss:
                     lr *= 0.5
+                    print(f'>>> lowering learning rate to {lr}')
+                    print('-' * 89)
+
         except KeyboardInterrupt:
             print('-' * 89)
             print('Exiting from training early')
@@ -253,6 +254,11 @@ def main():
     optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, dsm.parameters()),
                                  lr=args.lr, weight_decay=1e-5)
     train_loop()
+
+    # Load the best saved model.
+    with open(args.model_prefix + '_dsm.pt', 'rb') as f:
+        model = torch.load(f)
+        model.rnn.flatten_parameters()
 
     # 2. unfreeze the entire net:
     if args.full_finetune:

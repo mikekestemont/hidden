@@ -22,9 +22,9 @@ def main():
                         help='size of word embeddings')
     parser.add_argument('--emsize', type=int, default=128,
                         help='size of embeddings')
-    parser.add_argument('--nhid', type=int, default=128,
+    parser.add_argument('--nhid', type=int, default=1024,
                         help='number of hidden units per layer')
-    parser.add_argument('--nlayers', type=int, default=1,
+    parser.add_argument('--nlayers', type=int, default=2,
                         help='number of layers')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='initial learning rate')
@@ -32,13 +32,13 @@ def main():
                         help='initial learning rate')
     parser.add_argument('--clip', type=float, default=30,
                         help='gradient clipping')
-    parser.add_argument('--epochs', type=int, default=40,
+    parser.add_argument('--epochs', type=int, default=20,
                         help='upper epoch limit')
-    parser.add_argument('--batch_size', type=int, default=128, metavar='N',
+    parser.add_argument('--batch_size', type=int, default=264, metavar='N',
                         help='batch size')
-    parser.add_argument('--bptt', type=int, default=64,
+    parser.add_argument('--bptt', type=int, default=264,
                         help='sequence length')
-    parser.add_argument('--dropout', type=float, default=0.0,
+    parser.add_argument('--dropout', type=float, default=0.3,
                         help='dropout applied to layers (0 = no dropout)')
     parser.add_argument('--seed', type=int, default=1111,
                         help='random seed')
@@ -136,7 +136,7 @@ def main():
                 elapsed = time.time() - start_time
                 print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.6f} | ms/batch {:5.2f} | '
                        'loss {:5.6f} | ppl {:8.2f}'.format(
-                    epoch_idx, batch * args.batch_size, train.size(0) // args.bptt, lr,
+                    epoch_idx, batch * args.batch_size, len(train) // args.bptt * args.batch_size, lr,
                     elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss)))
                 total_loss = 0
                 start_time = time.time()
@@ -154,10 +154,6 @@ def main():
                         print(char, end='')
 
                 print('\n')
-
-                # remove!
-                with open(args.model_prefix + '_model.pt', 'wb') as f:
-                    torch.save(lm, f)
 
     def evaluate(data_source):
         lm.eval()
@@ -190,13 +186,18 @@ def main():
                     'valid ppl {:8.6f}'.format(epoch_idx, (time.time() - epoch_start_time),
                                                val_loss, math.exp(val_loss)))
             print('-' * 89)
-            
+
             if not best_val_loss or val_loss < best_val_loss:
                 with open(args.model_prefix + '_model.pt', 'wb') as f:
                     torch.save(lm, f)
+                print('>>> saving model')    
                 best_val_loss = val_loss
-            else:
+            elif val_loss >= best_val_loss:
                 lr *= 0.5
+                print(f'>>> lowering learning rate to {lr}')
+                for g in optimizer.param_groups:
+                    g['lr'] = lr
+
     except KeyboardInterrupt:
         print('-' * 89)
         print('Exiting from training early')

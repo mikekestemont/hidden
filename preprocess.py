@@ -19,9 +19,6 @@ def plain_text(fn, n=3):
         script.extract()
     text = s.find('text').text
 
-    # deflood multiple occurences of whitespace:
-    #return re.sub(r"((\s)\2{%s,})" % (n - 1), lambda m: m.group(1)[0] * n, text)
-
     text = re.sub(r'oͤ', 'ö', text)
     text = re.sub(r'uͤ', 'ü', text)
     text = re.sub(r'aͤ', 'ä', text)

@@ -33,6 +33,8 @@ def main():
                         help='path to save the final model')
     parser.add_argument('--direction', type=str, default='both',
                         help='path to save the final model')
+    parser.add_argument('--threshold', type=float, default=None,
+                        help='Threshold to select I-tag')
     args = parser.parse_args()
     print(args)
 
@@ -43,7 +45,7 @@ def main():
         if not args.cuda:
             print('WARNING: You have a CUDA device, so you should probably run with --cuda')
 
-    encoder = LabelEncoder.load(args.model_prefix+'_labeldict.json')
+    encoder = LabelEncoder.load(args.model_prefix + '_labeldict.json')
 
     device = torch.device('cuda' if args.cuda else 'cpu')
     random.seed(args.seed)
@@ -52,6 +54,9 @@ def main():
 
     test = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'test.txt')), 'r')]
     test_text, test_labels = zip(*test)
+
+    test_text = test_text[:10000]
+    test_labels = test_labels[:10000]
 
     def predict_proba(test_text, reverse=False):
         if reverse:
@@ -66,7 +71,6 @@ def main():
         dsm = dsm.to(device)
 
         ints = torch.LongTensor([dictionary.char2idx.get(c, 0) for c in test_text])
-        preds = []
         hid_ = None
 
         dsm.eval()
@@ -93,16 +97,29 @@ def main():
 
     elif args.direction == 'right':
         proba = predict_proba(test_text, reverse=True)
+
+    if args.threshold:    
+        idx = list(encoder.classes_).index('I')
+        output = ['I' if o >= args.threshold else 'O' for o in proba[:, idx]]
+    else:
+        output = np.argmax(proba, axis=-1)
+        output = encoder.inverse_transform(output)
     
-    output = np.argmax(proba, axis=-1)
-    output = encoder.inverse_transform(output)
     report = classification_report(test_labels, output)
-
-    for char, out in zip(test_text[:1000], output[:1000]):
-        print('  '.join((repr(char), out)))
-
     print(report)
-    
+
+    opened = False
+    with open('output.html', 'w') as f:
+        for char, out in zip(test_text, output):
+            if out == 'I' and opened == False:
+                f.write('<b>')
+                opened = True
+
+            f.write(char)
+
+            if out == 'O' and opened == True:
+                f.write('</b>')
+                opened = False
 
 
 if __name__ == '__main__':
