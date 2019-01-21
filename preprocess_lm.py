@@ -7,9 +7,6 @@ import shutil
 from sklearn.model_selection import train_test_split as split
 from bs4 import BeautifulSoup as soup
 
-"""
-python --indir="assets/unannotated/DTA" --outdir="assets/unannotated/DTA_splits"
-"""
 
 def plain_text(fn, n=3):
     print(fn)
@@ -19,9 +16,9 @@ def plain_text(fn, n=3):
         script.extract()
     text = s.find('text').text
 
-    text = re.sub(r'oͤ', 'ö', text)
-    text = re.sub(r'uͤ', 'ü', text)
-    text = re.sub(r'aͤ', 'ä', text)
+    #text = re.sub(r'oͤ', 'ö', text)
+    #text = re.sub(r'uͤ', 'ü', text)
+    #text = re.sub(r'aͤ', 'ä', text)
 
     text = re.sub(r'\-\s*\n+\s*', '', text)
     text = re.sub(r'¬\s*\n+\s*', '', text)
@@ -32,9 +29,9 @@ def plain_text(fn, n=3):
 
 def main():
     parser = argparse.ArgumentParser(description='Preprocess a directory of XML files')
-    parser.add_argument('--indir', type=str, default='assets/unannotated/DTA',
-                        help='location of the original TEI-files')
-    parser.add_argument('--outdir', type=str, default='assets/unannotated/DTA_splits',
+    parser.add_argument('--indir', type=str, default='../eltec/ELTeC-eng',
+                        help='location of the original Eltec XML-files')
+    parser.add_argument('--outdir', type=str, default='data/raw',
                         help='location of the train, dev, and test spit')
     parser.add_argument('--seed', type=int, default=12345,
                         help='random seed')
@@ -44,7 +41,7 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    filenames = glob.glob(os.sep.join((args.indir, '**', '*.xml')), recursive=True)
+    filenames = glob.glob(os.sep.join((f'{args.indir}/level1', '**', '*.xml')), recursive=True)
 
     train, rest = split(filenames,
                         train_size=args.train_size,
@@ -59,21 +56,25 @@ def main():
     print(f'# dev files: {len(dev)}')
     print(f'# test files: {len(test)}')
 
+    if not os.path.exists(args.outdir):
+        os.mkdir(args.outdir)
+
+    out_folder = f'{args.outdir}/{os.path.basename(args.indir)}'
     try:
-        shutil.rmtree(args.outdir)
+        shutil.rmtree(out_folder)
     except FileNotFoundError:
         pass
-    os.mkdir(args.outdir)
+    os.mkdir(out_folder)
 
-    with open(os.sep.join((args.outdir, 'train.txt')), 'w') as f:
+    with open(f'{out_folder}/train.txt', 'w') as f:
         for fn in train:
             f.write(plain_text(fn) + '\n')
 
-    with open(os.sep.join((args.outdir, 'dev.txt')), 'w') as f:
+    with open(f'{out_folder}/dev.txt', 'w') as f:
         for fn in dev:
             f.write(plain_text(fn) + '\n')
 
-    with open(os.sep.join((args.outdir, 'test.txt')), 'w') as f:
+    with open(f'{out_folder}/test.txt', 'w') as f:
         for fn in test:
             f.write(plain_text(fn) + '\n')
 

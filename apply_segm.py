@@ -19,22 +19,20 @@ from hidden.encoding import LabelEncoder
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
-    parser.add_argument('--infile', type=str, default='./assets/test.txt',
-                        help='location of the data corpus')
-    parser.add_argument('--batch_size', type=int, default=20, metavar='N',
-                        help='batch size')
-    parser.add_argument('--split_dir', type=str, default='./assets/annotated/kern_splits',
+    parser.add_argument('--split_dir', type=str, default='data/eltec_gt_splits/eng',
                         help='location of the data corpus')
     parser.add_argument('--seed', type=int, default=1111,
                         help='random seed')
     parser.add_argument('--cuda', action='store_true',
                         help='use CUDA')
-    parser.add_argument('--model_prefix', type=str, default='base',
+    parser.add_argument('--model_prefix', type=str, default='data/segm_models/eng/',
+                        help='path to save the final model')
+    parser.add_argument('--lm_model_prefix', type=str, default='data/lm_models/ELTeC-eng/',
+                        help='path to save the final model')
+    parser.add_argument('--results_dir', type=str, default='data/results',
                         help='path to save the final model')
     parser.add_argument('--direction', type=str, default='both',
                         help='path to save the final model')
-    parser.add_argument('--threshold', type=float, default=None,
-                        help='Threshold to select I-tag')
     args = parser.parse_args()
     print(args)
 
@@ -45,25 +43,25 @@ def main():
         if not args.cuda:
             print('WARNING: You have a CUDA device, so you should probably run with --cuda')
 
-    encoder = LabelEncoder.load(args.model_prefix + '_labeldict.json')
+    encoder = LabelEncoder.load(args.model_prefix + 'labeldict.json')
 
     device = torch.device('cuda' if args.cuda else 'cpu')
     random.seed(args.seed)
 
-    dictionary = data.Dictionary.load(args.model_prefix+'_chardict.json')
+    dictionary = data.Dictionary.load(args.lm_model_prefix + 'chardict.json')
 
-    test = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'test.txt')), 'r')]
+    test = [l.rstrip().split('\t') for l in open(os.sep.join((args.split_dir, 'test.txt')))]
     test_text, test_labels = zip(*test)
 
-    test_text = test_text[:10000]
-    test_labels = test_labels[:10000]
+    test_text = test_text
+    test_labels = test_labels
 
     def predict_proba(test_text, reverse=False):
         if reverse:
-            p = args.model_prefix + '-rev_dsm.pt'
+            p = args.model_prefix + 'rev_dsm.pt'
             test_text = test_text[::-1]
         else:
-            p = args.model_prefix + '_dsm.pt'
+            p = args.model_prefix + 'dsm.pt'
 
         with open(p, 'rb') as f:
             dsm = torch.load(f)
@@ -98,29 +96,20 @@ def main():
     elif args.direction == 'right':
         proba = predict_proba(test_text, reverse=True)
 
-    if args.threshold:    
-        idx = list(encoder.classes_).index('I')
-        output = ['I' if o >= args.threshold else 'O' for o in proba[:, idx]]
-    else:
-        output = np.argmax(proba, axis=-1)
-        output = encoder.inverse_transform(output)
+    output = np.argmax(proba, axis=-1)
+    output = encoder.inverse_transform(output)
     
     report = classification_report(test_labels, output)
     print(report)
 
-    opened = False
-    with open('output.html', 'w') as f:
-        for char, out in zip(test_text, output):
-            if out == 'I' and opened == False:
-                f.write('<b>')
-                opened = True
-
-            f.write(char)
-
-            if out == 'O' and opened == True:
-                f.write('</b>')
-                opened = False
-
+    if not os.path.isdir(args.results_dir):
+        os.mkdir(args.results_dir)
+    
+    outfn = f'{args.results_dir}/{os.path.basename(args.split_dir)}_ours.txt'
+    print('-> writing output to', outfn)
+    with open(outfn, 'w') as f:
+        for c, l in zip(test_text, output):
+            f.write(f'{c}\t{l}\n')
 
 if __name__ == '__main__':
     main()

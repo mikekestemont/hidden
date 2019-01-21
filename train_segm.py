@@ -26,19 +26,13 @@ def to_ints(text, dictionary):
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
-    parser.add_argument('--input_dir', type=str, default='./assets/annotated/kern_rich-de',
+    parser.add_argument('--split_dir', type=str, default='data/eltec_gt_splits/eng',
                         help='location of the data corpus')
-    parser.add_argument('--input_ext', type=str, default='tsv',
-                        help='location of the data corpus')
-    parser.add_argument('--split_dir', type=str, default='./assets/annotated/kern_splits',
-                        help='location of the data corpus')
-    parser.add_argument('--reparse', action='store_true', default=False,
-                        help='use CUDA')
     parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                         help='batch size')
-    parser.add_argument('--epochs', type=int, default=20, metavar='N',
+    parser.add_argument('--epochs', type=int, default=5, metavar='N',
                         help='batch size')
-    parser.add_argument('--bptt', type=int, default=254,
+    parser.add_argument('--bptt', type=int, default=75,
                         help='sequence length')
     parser.add_argument('--train_size', type=   float, default=.8,
                         help='sequence length')
@@ -50,17 +44,36 @@ def main():
                         help='use CUDA')
     parser.add_argument('--clip', type=float, default=0.25,
                         help='gradient clipping')
-    parser.add_argument('--model_prefix', type=str, default='base',
+    parser.add_argument('--lm_model_dir', type=str, default='data/lm_models/ELTeC-eng',
+                        help='path to save the final model')
+    parser.add_argument('--model_dir', type=str, default='data/segm_models',
                         help='path to save the final model')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='report interval')
-    parser.add_argument('--full_finetune', action='store_true', default=False,
+    parser.add_argument('--no_finetune', action='store_true', default=False,
                         help='use CUDA')
     parser.add_argument('--reverse', default=False, action='store_true',
                         help='backwards LM')
 
     args = parser.parse_args()
     print(args)
+
+    if not os.path.isdir(args.model_dir):
+        os.mkdir(args.model_dir)
+    
+    args.model_prefix = f'{args.model_dir}/{os.path.basename(args.split_dir)}'
+
+    if not args.reverse:
+        try:
+            shutil.rmtree(args.model_prefix)
+        except FileNotFoundError:
+            pass
+        os.mkdir(args.model_prefix)
+        args.model_prefix = f'{args.model_prefix}/'
+        args.lm_model_prefix = f'{args.lm_model_dir}/'
+    else:
+        args.model_prefix = f'{args.model_dir}/{os.path.basename(args.split_dir)}/rev_'
+        args.lm_model_prefix = f'{args.lm_model_dir}/rev_'
 
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
@@ -69,58 +82,22 @@ def main():
 
     device = torch.device('cuda' if args.cuda else 'cpu')
 
-    if args.reparse:
-        filenames = glob.glob(os.sep.join((args.input_dir, '**', f'*.{args.input_ext}')), recursive=True)
-
-        train, rest = split(filenames,
-                            train_size=args.train_size,
-                            shuffle=True,
-                            random_state=args.seed)
-        dev, test = split(rest,
-                          train_size=0.5,
-                          shuffle=True,
-                          random_state=args.seed)
-
-        print(f'# train files: {len(train)}')
-        print(f'# dev files: {len(dev)}')
-        print(f'# test files: {len(test)}')
-
-        try:
-            shutil.rmtree(args.split_dir)
-        except FileNotFoundError:
-            pass
-        os.mkdir(args.split_dir)
-
-        reader = data.readers[os.path.basename(args.input_dir)]
-
-        with open(os.sep.join((args.split_dir, 'train.txt')), 'w') as f:
-            for fn in sorted(train):
-                f.write(reader(fn))
-
-        with open(os.sep.join((args.split_dir, 'dev.txt')), 'w') as f:
-            for fn in sorted(dev):
-                f.write(reader(fn))
-
-        with open(os.sep.join((args.split_dir, 'test.txt')), 'w') as f:
-            for fn in sorted(test):
-                f.write(reader(fn))
-
-    train = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'train.txt')), 'r')]
+    train = [l.rstrip().split('\t') for l in open(f'{args.split_dir}/train.txt')]
     if args.reverse:
         train = train[::-1]
     train_text, train_labels = zip(*train)
 
-    dev = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'dev.txt')), 'r')]
+    dev = [l.rstrip().split('\t') for l in open(f'{args.split_dir}/dev.txt')]
     if args.reverse:
         dev = dev[::-1]
     dev_text, dev_labels = zip(*dev)
 
-    test = [json.loads(l) for l in open(os.sep.join((args.split_dir, 'test.txt')), 'r')]
+    test = [l.rstrip().split('\t') for l in open(f'{args.split_dir}/test.txt')]
     if args.reverse:
         test = test[::-1]
     test_text, test_labels = zip(*test)
 
-    dictionary = data.Dictionary.load(args.model_prefix+'_chardict.json')
+    dictionary = data.Dictionary.load(args.lm_model_dir+'/chardict.json')
     train_text = to_ints(train_text, dictionary)
     dev_text = to_ints(dev_text, dictionary)
     test_text = to_ints(test_text, dictionary)
@@ -129,8 +106,12 @@ def main():
     dev_X = utils.batchify(dev_text, args.batch_size).to(device)
     test_X = utils.batchify(test_text, args.batch_size).to(device)
 
-    encoder = LabelEncoder().fit(list(train_labels))
-    encoder.save(args.model_prefix+'_labeldict.json')
+    if not args.reverse:
+        encoder = LabelEncoder().fit(list(train_labels))
+        encoder.save(args.model_prefix + 'labeldict.json')
+    else:
+        encoder = LabelEncoder.load(args.model_prefix.replace('rev_', '')+'labeldict.json')
+    
     train_Y = encoder.transform(list(train_labels))
     dev_Y = encoder.transform(list(dev_labels))
     test_Y = encoder.transform(list(test_labels))
@@ -143,7 +124,8 @@ def main():
     dev_Y = utils.batchify(dev_Y, args.batch_size).to(device)
     test_Y = utils.batchify(test_Y, args.batch_size).to(device)
 
-    with open(args.model_prefix + '_model.pt', 'rb') as f:
+    print(args.lm_model_prefix + 'lm_model.pt')
+    with open(args.lm_model_prefix + 'lm_model.pt', 'rb') as f:
         dsm = torch.load(f)
 
     nclasses = len(encoder.classes_)
@@ -155,9 +137,6 @@ def main():
     lr = args.lr
     best_val_loss = None
     criterion = nn.CrossEntropyLoss()
-
-    if args.reverse:
-        args.model_prefix += '-rev'
 
     def get_batch(source, i, bptt):
         seq_len = min(bptt, len(source) - i)
@@ -231,7 +210,7 @@ def main():
                 print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.5f} | '.format(epoch, (time.time() - epoch_start_time), val_loss))
                 
                 if not best_val_loss or val_loss < best_val_loss:
-                    with open(args.model_prefix + '_dsm.pt', 'wb') as f:
+                    with open(args.model_prefix + 'dsm.pt', 'wb') as f:
                         torch.save(dsm, f)
                     print('>>> saving model')    
                     best_val_loss = val_loss
@@ -256,12 +235,13 @@ def main():
     train_loop()
 
     # Load the best saved model.
-    with open(args.model_prefix + '_dsm.pt', 'rb') as f:
+    with open(args.model_prefix + 'dsm.pt', 'rb') as f:
         model = torch.load(f)
         model.rnn.flatten_parameters()
 
     # 2. unfreeze the entire net:
-    if args.full_finetune:
+    if not args.no_finetune:
+        print('Started full finetune')
         for param in dsm.parameters():
             param.requires_grad = True
         optimizer = torch.optim.Adam(dsm.parameters(),
@@ -269,7 +249,7 @@ def main():
         train_loop()
 
     # Load the best saved model.
-    with open(args.model_prefix + '_dsm.pt', 'rb') as f:
+    with open(args.model_prefix + 'dsm.pt', 'rb') as f:
         model = torch.load(f)
         model.rnn.flatten_parameters()
 

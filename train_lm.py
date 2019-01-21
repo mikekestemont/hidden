@@ -2,6 +2,7 @@ import argparse
 import time
 import math
 import os
+import shutil
 
 import torch
 import torch.nn as nn
@@ -14,17 +15,17 @@ from hidden import modelling
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
-    parser.add_argument('--split_dir', type=str, default='./assets/unannotated/DTA_splits',
+    parser.add_argument('--split_dir', type=str, default='data/raw/ELTeC-eng',
                         help='location of the data corpus')
     parser.add_argument('--model', type=str, default='LSTM',
                         help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU)')
-    parser.add_argument('--min_char_freq', type=int, default=1000,
+    parser.add_argument('--min_char_freq', type=int, default=100,
                         help='size of word embeddings')
-    parser.add_argument('--emsize', type=int, default=128,
+    parser.add_argument('--emsize', type=int, default=64,
                         help='size of embeddings')
-    parser.add_argument('--nhid', type=int, default=1024,
+    parser.add_argument('--nhid', type=int, default=256,
                         help='number of hidden units per layer')
-    parser.add_argument('--nlayers', type=int, default=2,
+    parser.add_argument('--nlayers', type=int, default=1,
                         help='number of layers')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='initial learning rate')
@@ -32,13 +33,13 @@ def main():
                         help='initial learning rate')
     parser.add_argument('--clip', type=float, default=30,
                         help='gradient clipping')
-    parser.add_argument('--epochs', type=int, default=20,
+    parser.add_argument('--epochs', type=int, default=10,
                         help='upper epoch limit')
-    parser.add_argument('--batch_size', type=int, default=264, metavar='N',
+    parser.add_argument('--batch_size', type=int, default=24, metavar='N',
                         help='batch size')
-    parser.add_argument('--bptt', type=int, default=264,
+    parser.add_argument('--bptt', type=int, default=75,
                         help='sequence length')
-    parser.add_argument('--dropout', type=float, default=0.3,
+    parser.add_argument('--dropout', type=float, default=0.0,
                         help='dropout applied to layers (0 = no dropout)')
     parser.add_argument('--seed', type=int, default=1111,
                         help='random seed')
@@ -48,7 +49,7 @@ def main():
                         help='backwards LM')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='report interval')
-    parser.add_argument('--model_prefix', type=str, default='base',
+    parser.add_argument('--model_dir', type=str, default='data/lm_models',
                         help='path to save the final model')
 
     args = parser.parse_args()
@@ -57,34 +58,45 @@ def main():
     torch.manual_seed(args.seed)
     if torch.cuda.is_available() and not args.cuda:
         print('WARNING: You have a CUDA device, so you should probably run with --cuda')
+    
+    if not os.path.exists(args.model_dir):
+        os.mkdir(args.model_dir)
 
+    args.model_prefix = f'{args.model_dir}/{os.path.basename(args.split_dir)}'
     if not args.reverse:
-        # preprocess
+        try:
+            shutil.rmtree(args.model_prefix)
+        except FileNotFoundError:
+            pass
+        os.mkdir(args.model_prefix)
+
         dictionary = data.Dictionary(min_freq=args.min_char_freq)
         with open(os.sep.join((args.split_dir, 'train.txt')), 'r') as f:
             dictionary.fit(f.read())
-        dictionary.dump(args.model_prefix + '_chardict.json')
+        dictionary.dump(args.model_prefix + '/chardict.json')
         del dictionary
-    
-    dictionary = data.Dictionary.load(args.model_prefix + '_chardict.json')
 
-    if args.reverse:
-        args.model_prefix += '-rev'
+    if not args.reverse:
+        model_path = args.model_prefix + '/lm_model.pt'
+    else:
+        model_path = args.model_prefix + '/rev_lm_model.pt'
+    
+    dictionary = data.Dictionary.load(args.model_prefix + '/chardict.json')
 
     print('char vocab:', dictionary.idx2char)
 
     with open(os.sep.join((args.split_dir, 'train.txt')), 'r') as f:
-        train = f.read()
+        train = f.read()[:100000]
         if args.reverse:
             train = train[::-1]
         train = torch.LongTensor(dictionary.transform(train))
     with open(os.sep.join((args.split_dir, 'dev.txt')), 'r') as f:
-        dev = f.read()
+        dev = f.read()[:10000]
         if args.reverse:
             dev = dev[::-1]
         dev = torch.LongTensor(dictionary.transform(dev))
     with open(os.sep.join((args.split_dir, 'test.txt')), 'r') as f:
-        test = f.read()
+        test = f.read()[:10000]
         if args.reverse:
             test = test[::-1]
         test = torch.LongTensor(dictionary.transform(test))
@@ -188,7 +200,7 @@ def main():
             print('-' * 89)
 
             if not best_val_loss or val_loss < best_val_loss:
-                with open(args.model_prefix + '_model.pt', 'wb') as f:
+                with open(model_path, 'wb') as f:
                     torch.save(lm, f)
                 print('>>> saving model')    
                 best_val_loss = val_loss
@@ -202,7 +214,7 @@ def main():
         print('-' * 89)
         print('Exiting from training early')
 
-    with open(args.model_prefix + '_model.pt', 'rb') as f:
+    with open(model_path, 'rb') as f:
         lm = torch.load(f)
         lm.rnn.flatten_parameters()
 
